@@ -15,13 +15,20 @@ import {
 } from "react-native";
 import DropdownSelect from "react-native-input-select";
 
-const SERVER_URL = "http://192.168.1.147:3000/api/v1";
+const SERVER_URL = process.env.EXPO_PUBLIC_API_URL;
 const LOGIN_ENDPOINT = `${SERVER_URL}/auth/sign_in`;
 const AUTH_TOKEN_KEY = "kkb-auth-token";
 
 export default function Index() {
   const [toUserId, setToUserId] = useState<number>();
   const [userOptions, setUserOptions] = useState<
+    {
+      id: number;
+      name: string;
+    }[]
+  >([]);
+  const [categoryId, setCategoryId] = useState<number>();
+  const [categoryOptions, setCategoryOptions] = useState<
     {
       id: number;
       name: string;
@@ -51,9 +58,35 @@ export default function Index() {
           const authInfoObj = JSON.parse(storedAuthToken);
           const detectedUserId = authInfoObj["userId"];
           const detectedUserName = authInfoObj["name"];
-          if (detectedUserId && detectedUserName) {
-            setLoggedInUser({ userId: detectedUserId, name: detectedUserName });
-            await loadUserOptions();
+          // if (detectedUserId && detectedUserName) {
+          //   setLoggedInUser({
+          //     userId: detectedUserId,
+          //     name: detectedUserName,
+          //   });
+          // }
+          const response = await fetch(`${SERVER_URL}/auth/validate_token`, {
+            method: "GET",
+            headers: {
+              "access-token": authInfoObj["accessToken"],
+              client: authInfoObj["client"],
+              uid: authInfoObj["uid"],
+            },
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP status ${response.status}`);
+          }
+
+          const authData = await response.json();
+          if (authData.status) {
+            const detectedUserId = authInfoObj["userId"];
+            const detectedUserName = authInfoObj["name"];
+            if (detectedUserId && detectedUserName) {
+              setLoggedInUser({
+                userId: detectedUserId,
+                name: detectedUserName,
+              });
+            }
           }
         }
       } catch (error) {
@@ -67,8 +100,13 @@ export default function Index() {
       }
     };
 
-    void initializeAuthState();
+    initializeAuthState();
   }, []);
+
+  useEffect(() => {
+    loadUserOptions();
+    loadCategoryOptions();
+  }, [authToken, loggedInUser]);
 
   const loadUserOptions = async () => {
     if (!authToken) {
@@ -106,6 +144,48 @@ export default function Index() {
     } catch (error) {
       setStatusMessage(
         `宛先の取得に失敗しました: ${
+          error instanceof Error ? error.message : "原因不明のエラー"
+        }`
+      );
+    }
+  };
+
+  const loadCategoryOptions = async () => {
+    if (!authToken) {
+      return;
+    }
+
+    const authInfoObj = JSON.parse(authToken);
+
+    try {
+      const response = await fetch(`${SERVER_URL}/shift_categories`, {
+        method: "GET",
+        headers: {
+          "access-token": authInfoObj["accessToken"],
+          client: authInfoObj["client"],
+          uid: authInfoObj["uid"],
+          expiry: authInfoObj["expiry"],
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP status ${response.status}`);
+      }
+
+      const options: {
+        id: number;
+        name: string;
+      }[] = [];
+      const categoryData = await response.json();
+      if (categoryData) {
+        categoryData.forEach((data: any) => {
+          options.push({ id: data.id, name: data.name });
+        });
+        setCategoryOptions(options);
+      }
+    } catch (error) {
+      setStatusMessage(
+        `カテゴリーの取得に失敗しました: ${
           error instanceof Error ? error.message : "原因不明のエラー"
         }`
       );
@@ -204,8 +284,6 @@ export default function Index() {
       await SecureStore.setItemAsync(AUTH_TOKEN_KEY, authTokenString);
       setAuthToken(authTokenString);
 
-      await loadUserOptions();
-
       setStatusMessage("ログインに成功しました。");
       setLoginPassword("");
     } catch (error) {
@@ -214,6 +292,8 @@ export default function Index() {
           error instanceof Error ? error.message : "原因不明のエラー"
         }`
       );
+      setLoggedInUser(null);
+      setAuthToken(null);
     } finally {
       setIsLoggingIn(false);
     }
@@ -260,6 +340,9 @@ export default function Index() {
       const formData = new FormData();
       formData.append("userId", String(loggedInUser?.userId));
       formData.append("toUserId", String(toUserId));
+      if (categoryId) {
+        formData.append("shiftCategoryId", String(categoryId));
+      }
       if (textPayload.trim()) {
         formData.append("text", textPayload.trim());
       }
@@ -278,7 +361,7 @@ export default function Index() {
         } as never);
       }
 
-      const response = await fetch(`${SERVER_URL}/kkbs/create_instruction`, {
+      const response = await fetch(`${SERVER_URL}/shift_managements/`, {
         method: "POST",
         headers: {
           "access-token": authTokenObj["accessToken"],
@@ -295,6 +378,7 @@ export default function Index() {
 
       setStatusMessage("送信に成功しました。");
       setToUserId(undefined);
+      setCategoryId(undefined);
       setTextPayload("");
       setVideoAsset(null);
     } catch (error) {
@@ -352,6 +436,20 @@ export default function Index() {
                 optionValue={"id"}
                 selectedValue={toUserId}
                 onValueChange={(itemValue: any) => setToUserId(itemValue)}
+                isSearchable
+                primaryColor={"#1e40af"}
+                selectedItemsControls={{
+                  showRemoveIcon: true,
+                }}
+              />
+              <DropdownSelect
+                label="カテゴリー"
+                placeholder="選択してください"
+                options={categoryOptions}
+                optionLabel={"name"}
+                optionValue={"id"}
+                selectedValue={categoryId}
+                onValueChange={(itemValue: any) => setCategoryId(itemValue)}
                 isSearchable
                 primaryColor={"#1e40af"}
                 selectedItemsControls={{
