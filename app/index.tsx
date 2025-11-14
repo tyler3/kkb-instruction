@@ -1,6 +1,7 @@
 import * as ImagePicker from "expo-image-picker";
+import * as Linking from "expo-linking";
 import * as SecureStore from "expo-secure-store";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -15,35 +16,30 @@ import {
 } from "react-native";
 import DropdownSelect from "react-native-input-select";
 
-const SERVER_URL = process.env.EXPO_PUBLIC_API_URL;
-const LOGIN_ENDPOINT = `${SERVER_URL}/auth/sign_in`;
+const SERVER_URL = process.env.EXPO_PUBLIC_SERVER_URL;
+const API_ENDPOINT = `${SERVER_URL}/api/v1`;
+const LOGIN_ENDPOINT = `${API_ENDPOINT}/auth/sign_in`;
 const AUTH_TOKEN_KEY = "kkb-auth-token";
 
 type InstructionHistoryItem = {
   id: number | string;
   day?: string | null;
-  toUserName?: string | null;
-  categoryName?: string | null;
-  comment?: string | null;
+  orgName?: string | null;
+  taskName?: string | null;
+  content?: string | null;
   fileUrl?: string | null;
 };
 
 export default function Index() {
-  const [toUserId, setToUserId] = useState<number>();
-  const [userOptions, setUserOptions] = useState<
+  const [orgId, setOrgId] = useState<number>();
+  const [orgOptions, setOrgOptions] = useState<
     {
       id: number;
       name: string;
     }[]
   >([]);
-  const [categoryId, setCategoryId] = useState<number>();
-  const [categoryOptions, setCategoryOptions] = useState<
-    {
-      id: number;
-      name: string;
-    }[]
-  >([]);
-  const [textPayload, setTextPayload] = useState("");
+  const [taskName, setTaskName] = useState("");
+  const [content, setContent] = useState("");
   const [videoAsset, setVideoAsset] =
     useState<ImagePicker.ImagePickerAsset | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -71,15 +67,7 @@ export default function Index() {
         if (storedAuthToken) {
           setAuthToken(storedAuthToken);
           const authInfoObj = JSON.parse(storedAuthToken);
-          const detectedUserId = authInfoObj["userId"];
-          const detectedUserName = authInfoObj["name"];
-          // if (detectedUserId && detectedUserName) {
-          //   setLoggedInUser({
-          //     userId: detectedUserId,
-          //     name: detectedUserName,
-          //   });
-          // }
-          const response = await fetch(`${SERVER_URL}/auth/validate_token`, {
+          const response = await fetch(`${API_ENDPOINT}/auth/validate_token`, {
             method: "GET",
             headers: {
               "access-token": authInfoObj["accessToken"],
@@ -93,15 +81,17 @@ export default function Index() {
           }
 
           const authData = await response.json();
-          if (authData.status) {
-            const detectedUserId = authInfoObj["userId"];
-            const detectedUserName = authInfoObj["name"];
+          if (authData.success) {
+            const detectedUserId = authData.data.id;
+            const detectedUserName = `${authData.data.name1} ${authData.data.name2}（${authData.data.code}）`;
             if (detectedUserId && detectedUserName) {
               setLoggedInUser({
                 userId: detectedUserId,
                 name: detectedUserName,
               });
             }
+          } else {
+            setAuthToken(null);
           }
         }
       } catch (error) {
@@ -119,9 +109,10 @@ export default function Index() {
   }, []);
 
   useEffect(() => {
-    loadUserOptions();
-    loadCategoryOptions();
-  }, [authToken, loggedInUser]);
+    if (authToken) {
+      loadOrgOptions();
+    }
+  }, [authToken]);
 
   useEffect(() => {
     if (!authToken) {
@@ -130,7 +121,13 @@ export default function Index() {
     }
   }, [authToken]);
 
-  const loadInstructionHistory = useCallback(async () => {
+  useEffect(() => {
+    if (activeTab === "history" && authToken) {
+      loadInstructionHistory();
+    }
+  }, [activeTab, authToken]);
+
+  const loadInstructionHistory = async () => {
     if (!authToken) {
       return;
     }
@@ -144,9 +141,8 @@ export default function Index() {
     });
 
     try {
-      console.log(`${SERVER_URL}/shift_managements?${queryParams}`);
       const response = await fetch(
-        `${SERVER_URL}/shift_managements?${queryParams}`,
+        `${API_ENDPOINT}/unit_tasks?${queryParams}`,
         {
           method: "GET",
           headers: {
@@ -171,39 +167,13 @@ export default function Index() {
 
       const normalizedItems: InstructionHistoryItem[] = rawItems.map(
         (item: any, index: number) => {
-          const toUserIdentifier = item.toUserId ?? item.to_user_id ?? null;
-          const numericToUserId =
-            typeof toUserIdentifier === "number"
-              ? toUserIdentifier
-              : toUserIdentifier
-              ? Number(toUserIdentifier)
-              : null;
-
           return {
-            id:
-              item.id ??
-              `${item.created_at ?? item.createdAt ?? "history"}-${index}`,
-            toUserId: Number.isNaN(numericToUserId) ? null : numericToUserId,
-            toUserName:
-              item.toUserName ??
-              item.to_user_name ??
-              item.to_user ??
-              item.toUser ??
-              null,
-            categoryName:
-              item.categoryName ??
-              item.category_name ??
-              item.shift_category_name ??
-              item.shiftCategory?.name ??
-              null,
-            comment: item.comment ?? item.body ?? "",
-            day: item.day ?? item.created_at ?? item.created_on ?? null,
-            fileUrl:
-              item.fileUrl ??
-              item.file_url ??
-              item.video_url ??
-              item.file ??
-              null,
+            id: item.id,
+            day: item.day ?? null,
+            orgName: item.orgName ?? null,
+            taskName: item.taskName ?? "",
+            content: item.content ?? "",
+            fileUrl: item.fileUrl ?? null,
           };
         }
       );
@@ -218,23 +188,16 @@ export default function Index() {
     } finally {
       setIsHistoryLoading(false);
     }
-  }, [authToken]);
+  };
 
-  useEffect(() => {
-    if (activeTab === "history" && authToken) {
-      loadInstructionHistory();
-    }
-  }, [activeTab, authToken, loadInstructionHistory]);
-
-  const loadUserOptions = async () => {
+  const loadOrgOptions = async () => {
     if (!authToken) {
       return;
     }
-
     const authInfoObj = JSON.parse(authToken);
 
     try {
-      const response = await fetch(`${SERVER_URL}/users`, {
+      const response = await fetch(`${API_ENDPOINT}/organization_units`, {
         method: "GET",
         headers: {
           "access-token": authInfoObj["accessToken"],
@@ -252,58 +215,16 @@ export default function Index() {
         id: number;
         name: string;
       }[] = [];
-      const userData = await response.json();
-      if (userData) {
-        userData.forEach((data: any) => {
-          options.push({ id: data.id, name: `${data.name}（${data.code}）` });
+      const orgData = await response.json();
+      if (orgData) {
+        orgData.forEach((data: any) => {
+          options.push({ id: data.id, name: data.name });
         });
-        setUserOptions(options);
+        setOrgOptions(options);
       }
     } catch (error) {
       setStatusMessage(
         `宛先の取得に失敗しました: ${
-          error instanceof Error ? error.message : "原因不明のエラー"
-        }`
-      );
-    }
-  };
-
-  const loadCategoryOptions = async () => {
-    if (!authToken) {
-      return;
-    }
-
-    const authInfoObj = JSON.parse(authToken);
-
-    try {
-      const response = await fetch(`${SERVER_URL}/shift_categories`, {
-        method: "GET",
-        headers: {
-          "access-token": authInfoObj["accessToken"],
-          client: authInfoObj["client"],
-          uid: authInfoObj["uid"],
-          expiry: authInfoObj["expiry"],
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP status ${response.status}`);
-      }
-
-      const options: {
-        id: number;
-        name: string;
-      }[] = [];
-      const categoryData = await response.json();
-      if (categoryData) {
-        categoryData.forEach((data: any) => {
-          options.push({ id: data.id, name: data.name });
-        });
-        setCategoryOptions(options);
-      }
-    } catch (error) {
-      setStatusMessage(
-        `カテゴリーの取得に失敗しました: ${
           error instanceof Error ? error.message : "原因不明のエラー"
         }`
       );
@@ -427,6 +348,7 @@ export default function Index() {
         }`
       );
     } finally {
+      setUserCode("");
       setAuthToken(null);
       setLoggedInUser(null);
       setStatusMessage("ログアウトしました。");
@@ -434,12 +356,17 @@ export default function Index() {
   };
 
   const uploadInstruction = async () => {
-    if (!toUserId) {
+    if (!orgId) {
       setStatusMessage("宛先を選択してください。");
       return;
     }
 
-    if (!textPayload.trim() && !videoAsset) {
+    if (!taskName) {
+      setStatusMessage("タスク名を選択してください。");
+      return;
+    }
+
+    if (!content.trim() && !videoAsset) {
       setStatusMessage("指示内容を入力するか、動画を指定してください。");
       return;
     }
@@ -457,20 +384,16 @@ export default function Index() {
     try {
       const formData = new FormData();
       formData.append("userId", String(loggedInUser?.userId));
-      formData.append("toUserId", String(toUserId));
-      if (categoryId) {
-        formData.append("shiftCategoryId", String(categoryId));
-      }
-      if (textPayload.trim()) {
-        formData.append("text", textPayload.trim());
+      formData.append("orgId", String(orgId));
+      formData.append("taskName", String(taskName));
+
+      if (content.trim()) {
+        formData.append("content", content.trim());
       }
 
       if (videoAsset) {
-        const fileName =
-          videoAsset.fileName ??
-          `video-${Date.now()}.${
-            videoAsset.mimeType?.split("/").pop() ?? "mp4"
-          }`;
+        console.log(videoAsset.mimeType);
+        const fileName = videoAsset.fileName ?? `video-${Date.now()}.mp4`;
 
         formData.append("file", {
           uri: videoAsset.uri,
@@ -479,7 +402,7 @@ export default function Index() {
         } as never);
       }
 
-      const response = await fetch(`${SERVER_URL}/shift_managements/`, {
+      const response = await fetch(`${API_ENDPOINT}/unit_tasks/`, {
         method: "POST",
         headers: {
           "access-token": authTokenObj["accessToken"],
@@ -495,9 +418,9 @@ export default function Index() {
       }
 
       setStatusMessage("送信に成功しました。");
-      setToUserId(undefined);
-      setCategoryId(undefined);
-      setTextPayload("");
+      setOrgId(undefined);
+      setTaskName("");
+      setContent("");
       setVideoAsset(null);
     } catch (error) {
       setStatusMessage(
@@ -598,38 +521,34 @@ export default function Index() {
                 <DropdownSelect
                   label="宛先"
                   placeholder="選択してください"
-                  options={userOptions}
+                  options={orgOptions}
                   optionLabel={"name"}
                   optionValue={"id"}
-                  selectedValue={toUserId}
-                  onValueChange={(itemValue: any) => setToUserId(itemValue)}
+                  selectedValue={orgId}
+                  onValueChange={(itemValue: any) => setOrgId(itemValue)}
                   isSearchable
                   primaryColor={"#1e40af"}
                   selectedItemsControls={{
                     showRemoveIcon: true,
                   }}
                 />
-                <DropdownSelect
-                  label="カテゴリー"
-                  placeholder="選択してください"
-                  options={categoryOptions}
-                  optionLabel={"name"}
-                  optionValue={"id"}
-                  selectedValue={categoryId}
-                  onValueChange={(itemValue: any) => setCategoryId(itemValue)}
-                  isSearchable
-                  primaryColor={"#1e40af"}
-                  selectedItemsControls={{
-                    showRemoveIcon: true,
-                  }}
+
+                <TextInput
+                  style={styles.singleLineInput}
+                  placeholder="タスク名"
+                  placeholderTextColor="#7d7d7d"
+                  value={taskName}
+                  onChangeText={setTaskName}
+                  editable={!isUploading}
                 />
+
                 <TextInput
                   style={styles.multilineInput}
                   placeholder="指示内容を入力"
                   placeholderTextColor="#7d7d7d"
                   multiline
-                  value={textPayload}
-                  onChangeText={setTextPayload}
+                  value={content}
+                  onChangeText={setContent}
                   editable={!isUploading}
                 />
 
@@ -745,22 +664,28 @@ export default function Index() {
                 ) : (
                   instructionHistory.map((item) => (
                     <View key={String(item.id)} style={styles.historyCard}>
-                      <Text style={styles.historyTitle}>{item.toUserName}</Text>
+                      <Text style={styles.historyTitle}>{item.orgName}</Text>
                       <Text style={styles.historyMeta}>
                         {formatTimestamp(item.day)}
-                        {item.categoryName ? ` ・ ${item.categoryName}` : ""}
                       </Text>
-                      {item.comment ? (
-                        <Text style={styles.historyText}>{item.comment}</Text>
+                      <Text style={styles.historyTitle}>{item.taskName}</Text>
+                      {item.content ? (
+                        <Text style={styles.historyText}>{item.content}</Text>
                       ) : (
                         <Text style={styles.historyPlaceholder}>
                           テキスト入力なし
                         </Text>
                       )}
                       {item.fileUrl ? (
-                        <Text style={styles.historyAttachment}>
-                          動画添付あり
-                        </Text>
+                        <TouchableOpacity
+                          onPress={() =>
+                            Linking.openURL(`${SERVER_URL}${item.fileUrl}`)
+                          }
+                        >
+                          <Text style={styles.historyAttachment}>
+                            動画添付あり
+                          </Text>
+                        </TouchableOpacity>
                       ) : null}
                     </View>
                   ))
@@ -837,6 +762,17 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   loginInput: {
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: "#111827",
+    backgroundColor: "#f9fafb",
+    marginBottom: 12,
+  },
+  singleLineInput: {
     borderWidth: 1,
     borderColor: "#d1d5db",
     borderRadius: 10,
@@ -1014,7 +950,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   historyMeta: {
-    fontSize: 13,
+    fontSize: 14,
     color: "#6b7280",
     marginBottom: 8,
   },
@@ -1029,7 +965,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   historyAttachment: {
-    fontSize: 13,
+    fontSize: 14,
     color: "#1e40af",
   },
   errorText: {
