@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";
 import * as Linking from "expo-linking";
 import * as SecureStore from "expo-secure-store";
@@ -24,6 +25,8 @@ const AUTH_TOKEN_KEY = "kkb-auth-token";
 type InstructionHistoryItem = {
   id: number | string;
   day?: string | null;
+  code?: string | null;
+  createdAt?: string | null;
   orgName?: string | null;
   taskName?: string | null;
   content?: string | null;
@@ -31,6 +34,7 @@ type InstructionHistoryItem = {
 };
 
 export default function Index() {
+  const [isFirstLaunch, setIsFirstLaunch] = useState<boolean | null>(null);
   const [orgId, setOrgId] = useState<number>();
   const [orgOptions, setOrgOptions] = useState<
     {
@@ -63,6 +67,15 @@ export default function Index() {
   useEffect(() => {
     const initializeAuthState = async () => {
       try {
+        const value = await AsyncStorage.getItem("hasLaunched");
+        if (value === null) {
+          await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
+          setIsFirstLaunch(true);
+          await AsyncStorage.setItem("hasLaunched", "true");
+        } else {
+          setIsFirstLaunch(false);
+        }
+
         const storedAuthToken = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
         if (storedAuthToken) {
           setAuthToken(storedAuthToken);
@@ -170,6 +183,8 @@ export default function Index() {
           return {
             id: item.id,
             day: item.day ?? null,
+            code: item.code ?? null,
+            createdAt: item.createdAt ?? null,
             orgName: item.orgName ?? null,
             taskName: item.taskName ?? "",
             content: item.content ?? "",
@@ -443,7 +458,7 @@ export default function Index() {
       return timestamp;
     }
 
-    return parsedDate.toLocaleDateString("ja-JP");
+    return parsedDate.toLocaleString("ja-JP").slice(0, -3);
   };
 
   if (isAuthenticating) {
@@ -519,8 +534,7 @@ export default function Index() {
 
               <View style={styles.section}>
                 <DropdownSelect
-                  label="宛先"
-                  placeholder="選択してください"
+                  placeholder="宛先を選択してください"
                   options={orgOptions}
                   optionLabel={"name"}
                   optionValue={"id"}
@@ -530,6 +544,21 @@ export default function Index() {
                   primaryColor={"#1e40af"}
                   selectedItemsControls={{
                     showRemoveIcon: true,
+                  }}
+                  dropdownContainerStyle={{ marginBottom: 12 }}
+                  dropdownStyle={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    borderWidth: 1,
+                    borderColor: "#d1d5db",
+                    borderRadius: 10,
+                    minHeight: 44,
+                  }}
+                  dropdownIconStyle={{ top: 18, right: 20 }}
+                  modalControls={{
+                    modalOptionsContainerStyle: {
+                      height: "50%",
+                    },
                   }}
                 />
 
@@ -664,17 +693,22 @@ export default function Index() {
                 ) : (
                   instructionHistory.map((item) => (
                     <View key={String(item.id)} style={styles.historyCard}>
-                      <Text style={styles.historyTitle}>{item.orgName}</Text>
-                      <Text style={styles.historyMeta}>
-                        {formatTimestamp(item.day)}
-                      </Text>
-                      <Text style={styles.historyTitle}>{item.taskName}</Text>
-                      {item.content ? (
-                        <Text style={styles.historyText}>{item.content}</Text>
-                      ) : (
-                        <Text style={styles.historyPlaceholder}>
-                          テキスト入力なし
+                      <Text style={{ marginBottom: 4 }}>
+                        <Text style={styles.historyMeta}>
+                          {formatTimestamp(item.createdAt)}
                         </Text>
+                        <Text>&nbsp;&nbsp;</Text>
+                        <Text style={styles.historyTitle}>{item.taskName}</Text>
+                      </Text>
+
+                      <Text style={{ marginBottom: 4 }}>
+                        <Text style={styles.historyOrgName}>
+                          To: {item.orgName}
+                        </Text>
+                      </Text>
+
+                      {item.content && (
+                        <Text style={styles.historyText}>{item.content}</Text>
                       )}
                       {item.fileUrl ? (
                         <TouchableOpacity
@@ -734,7 +768,8 @@ const styles = StyleSheet.create({
   },
   content: {
     flexGrow: 1,
-    paddingVertical: 32,
+    paddingTop: 12,
+    paddingBottom: 36,
     paddingHorizontal: 24,
   },
   title: {
@@ -834,7 +869,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 16,
+    marginBottom: 12,
     paddingHorizontal: 12,
   },
   logoutButton: {
@@ -893,7 +928,7 @@ const styles = StyleSheet.create({
   },
   tabBar: {
     flexDirection: "row",
-    marginBottom: 24,
+    marginBottom: 12,
     backgroundColor: "#e0e7ff",
     borderRadius: 999,
     padding: 4,
@@ -942,6 +977,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#e5e7eb",
+  },
+  historyOrgName: {
+    fontSize: 14,
+    color: "#111827",
   },
   historyTitle: {
     fontSize: 16,
