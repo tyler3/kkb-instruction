@@ -669,7 +669,7 @@ export default function Index() {
             </>
           ) : (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>ログイン</Text>
+              <Text style={styles.loginTitle}>ログイン</Text>
               <TextInput
                 style={styles.loginInput}
                 placeholder="ユーザーID"
@@ -705,7 +705,7 @@ export default function Index() {
             {authToken ? (
               <>
                 <View style={styles.historyHeader}>
-                  <Text style={styles.sectionTitle}>送信履歴</Text>
+                  <Text style={styles.historySectionTitle}>送信履歴</Text>
                   <TouchableOpacity
                     style={[
                       styles.historyRefreshButton,
@@ -835,10 +835,11 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 2,
   },
-  sectionTitle: {
+  loginTitle: {
     fontSize: 18,
     fontWeight: "600",
     color: "#1f2937",
+    marginBottom: 12,
   },
   loginInput: {
     borderWidth: 1,
@@ -1004,6 +1005,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 4,
+  },
+  historySectionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#1f2937",
   },
   historyRefreshButton: {
     paddingHorizontal: 12,
