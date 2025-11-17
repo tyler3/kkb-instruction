@@ -23,14 +23,14 @@ const LOGIN_ENDPOINT = `${API_ENDPOINT}/auth/sign_in`;
 const AUTH_TOKEN_KEY = "kkb-auth-token";
 
 type InstructionHistoryItem = {
-  id: number | string;
+  id: number;
   day?: string | null;
   code?: string | null;
   createdAt?: string | null;
   orgName?: string | null;
   taskName?: string | null;
   content?: string | null;
-  fileUrl?: string | null;
+  fileAttached?: boolean | null;
 };
 
 export default function Index() {
@@ -188,7 +188,7 @@ export default function Index() {
             orgName: item.orgName ?? null,
             taskName: item.taskName ?? "",
             content: item.content ?? "",
-            fileUrl: item.fileUrl ?? null,
+            fileAttached: item.fileAttached ?? false,
           };
         }
       );
@@ -282,7 +282,50 @@ export default function Index() {
   };
 
   const handleResetVideo = () => {
+    setStatusMessage(null);
     setVideoAsset(null);
+  };
+
+  const handleGetMovieUrl = async (unitTaskId: number) => {
+    setStatusMessage(null);
+    if (!authToken) {
+      return;
+    }
+    const authInfoObj = JSON.parse(authToken);
+
+    const queryParams = new URLSearchParams({
+      id: String(unitTaskId),
+    });
+
+    try {
+      const response = await fetch(
+        `${API_ENDPOINT}/unit_tasks/movie_file_url?${queryParams}`,
+        {
+          method: "GET",
+          headers: {
+            "access-token": authInfoObj["accessToken"],
+            client: authInfoObj["client"],
+            uid: authInfoObj["uid"],
+            expiry: authInfoObj["expiry"],
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP status ${response.status}`);
+      }
+
+      const urlData = await response.json();
+      if (urlData && urlData.data && urlData.data.url) {
+        Linking.openURL(`${urlData.data.url}`);
+      }
+    } catch (error) {
+      setStatusMessage(
+        `動画の取得に失敗しました: ${
+          error instanceof Error ? error.message : "原因不明のエラー"
+        }`
+      );
+    }
   };
 
   const handleLogin = async () => {
@@ -354,6 +397,7 @@ export default function Index() {
   };
 
   const handleLogout = async () => {
+    setStatusMessage(null);
     try {
       await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
     } catch (error) {
@@ -371,6 +415,7 @@ export default function Index() {
   };
 
   const uploadInstruction = async () => {
+    setStatusMessage(null);
     if (!orgId) {
       setStatusMessage("宛先を選択してください。");
       return;
@@ -710,11 +755,11 @@ export default function Index() {
                       {item.content && (
                         <Text style={styles.historyText}>{item.content}</Text>
                       )}
-                      {item.fileUrl ? (
+                      {item.fileAttached ? (
                         <TouchableOpacity
-                          onPress={() =>
-                            Linking.openURL(`${SERVER_URL}${item.fileUrl}`)
-                          }
+                          onPress={() => {
+                            handleGetMovieUrl(item.id);
+                          }}
                         >
                           <Text style={styles.historyAttachment}>
                             動画添付あり
@@ -794,7 +839,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "600",
     color: "#1f2937",
-    marginBottom: 12,
   },
   loginInput: {
     borderWidth: 1,
@@ -959,7 +1003,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 12,
+    marginBottom: 4,
   },
   historyRefreshButton: {
     paddingHorizontal: 12,
